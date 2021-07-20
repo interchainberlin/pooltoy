@@ -2,12 +2,13 @@ package keeper
 
 import (
 	"context"
-	"time"
-
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	authtypes "github.com/cosmos/cosmos-sdk/x/auth/types"
 	"github.com/interchainberlin/pooltoy/x/faucet/types"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"sort"
+	"time"
 )
 
 var _ types.QueryServer = Keeper{}
@@ -53,4 +54,39 @@ func (k Keeper) QueryWhenBrr(c context.Context, req *types.QueryWhenBrrRequest) 
 	return &types.QueryWhenBrrResponse{
 		TimeLeft: timeLeft,
 	}, nil
+}
+
+func (k Keeper) QueryEmojiRank(c context.Context, req *types.QueryEmojiRankRequest) (*types.QueryEmojiRankResponse, error) {
+
+	var addr sdk.AccAddress
+	var balances sdk.Coins
+	var ranks = []*types.Amount{}
+
+	ctx := sdk.UnwrapSDKContext(c)
+	accounts := k.AccountKeeper.GetAllAccounts(ctx)
+	for _, account := range accounts {
+		// filter out module accounts
+		if _, ok := account.(authtypes.ModuleAccountI); ok{
+			continue
+		}
+
+		var amount = int64(0)
+		addr = account.GetAddress()
+		balances = k.BankKeeper.GetAllBalances(ctx, addr)
+		for _, emoji := range balances {
+			amount += emoji.Amount.Int64()
+		}
+
+		ranks = append(ranks, &types.Amount{Address: addr.String(), Total: amount})
+	}
+
+	if int(req.ShowNum) > len(ranks){
+		return nil,status.Error(codes.InvalidArgument, "the rank list is shorter than the requested")
+	}
+
+	sort.Slice(ranks, func(i, j int) bool {
+		return ranks[i].Total > ranks[j].Total
+	})
+
+	return &types.QueryEmojiRankResponse{Rank: ranks[:req.ShowNum]}, nil
 }
